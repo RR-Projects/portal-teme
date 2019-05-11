@@ -15,11 +15,13 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Newtonsoft.Json.Serialization;
 using PortalTeme.API.Mappers;
 using PortalTeme.Common.Authentication;
+using PortalTeme.Common.Caching;
 using PortalTeme.Data;
 using PortalTeme.Data.Authorization.Policies;
 using PortalTeme.Data.Identity;
@@ -52,8 +54,10 @@ namespace PortalTeme {
 
             services.AddAntiforgery();
 
-            services.AddHostedService<TempFilesCleaner>();
+            services.AddSingleton<IJsonSerializer, JsonNetSerializer>();
+
             services.AddSingleton<IFileProvider, ContentRootFileProvider>();
+            services.AddHostedService<TempFilesCleaner>();
 
             // TODO: This could be registered as singleton
             services.AddDbContext<FilesContext>(options =>
@@ -85,6 +89,10 @@ namespace PortalTeme {
 
             // TODO: Update to use Redis (at least in prod)
             services.AddDistributedMemoryCache();
+            services.Replace(ServiceDescriptor.Singleton<IDistributedCache, ExtendedMemoryDistributedCache>());
+            services.AddSingleton<IExtendedDistributedCache, ExtendedMemoryDistributedCache>();
+
+            services.AddSingleton<ICacheService, DistributedCacheService>();
 
             services.AddMvc()
                 .SetCompatibilityVersion(CompatibilityVersion.Version_2_1)
@@ -192,7 +200,7 @@ namespace PortalTeme {
             if (disco.IsError)
                 return;
 
-            var tokenClient = new TokenClient(disco.TokenEndpoint, AuthenticationConstants.AngularAppClientId, authorizationSection.GetValue<string>("ClientSecret"));
+            var tokenClient = new TokenClient(disco.TokenEndpoint, authorizationSection.GetValue<string>("ClientId"), authorizationSection.GetValue<string>("ClientSecret"));
             var clientResponse = await tokenClient.RequestRefreshTokenAsync(refreshToken);
 
             if (clientResponse.IsError) {
@@ -219,7 +227,7 @@ namespace PortalTeme {
             options.Authority = authorizationSection.GetValue<string>("AuthorityUri");
             options.RequireHttpsMetadata = false;
 
-            options.ClientId = AuthenticationConstants.AngularAppClientId;
+            options.ClientId = authorizationSection.GetValue<string>("ClientId");
             options.ClientSecret = authorizationSection.GetValue<string>("ClientSecret");
             options.ResponseType = "code id_token";
 
